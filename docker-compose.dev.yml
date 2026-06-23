@@ -1,0 +1,30 @@
+# ──────────────────────────────────────────────────────────────
+#  Legacy Laravel — infraestructura de desarrollo (solo Postgres)
+#  Uso: docker compose -f docker-compose.dev.yml up -d
+#
+#  Nota: este servicio es de SOLO LECTURA sobre la BD.
+#  Las tablas deben ser creadas por el backend (NestJS migrations).
+# ──────────────────────────────────────────────────────────────
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: shopify_postgres_legacy_dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: shopify_orders
+      POSTGRES_USER: shopify_user
+      POSTGRES_PASSWORD: shopify_pass
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_legacy_dev_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U shopify_user -d shopify_orders']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_legacy_dev_data:
