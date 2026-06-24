@@ -9,43 +9,107 @@ Componente legacy en PHP/Laravel que expone materiales con bajo stock a través 
 - **L5-Swagger** — documentación OpenAPI 3.0 con PHP 8 Attributes
 - Swagger UI en `/api/documentation`
 
-## Requisitos
+---
 
-- PHP 8.2+ con extensiones: `pdo`, `pdo_pgsql`, `mbstring`, `xml`, `bcmath`
-- Composer 2+
-- PostgreSQL 15+ (con tablas ya creadas por el backend NestJS)
-- Docker (opcional, para levantar Postgres en desarrollo)
+## 🐳 Levante con Docker (recomendado)
 
-## Instalación
+Solo necesitas **Docker Desktop** instalado.
+
+### 1. Configurar variables de entorno
 
 ```bash
-# 1. Instalar dependencias PHP
+cp .env.example .env
+```
+
+Edita el archivo `.env` generado y establece:
+
+```env
+DB_HOST=postgres          # nombre del servicio dentro de la red Docker
+DB_PORT=5432
+DB_DATABASE=shopify_orders
+DB_USERNAME=shopify_user
+DB_PASSWORD=shopify_pass
+```
+
+> **Nota:** Las tablas deben existir previamente. Si estás usando el repositorio del backend en paralelo, las migraciones ya las habrán creado. Si usas solo este repo, levanta Postgres con `docker-compose.dev.yml` y crea las tablas manualmente o desde el backend.
+
+### 2. Levantar Postgres (solo si no tienes uno ya corriendo)
+
+```bash
+docker compose -f docker-compose.dev.yml up -d
+```
+
+Esto levanta **PostgreSQL 15** en `localhost:5432`.
+
+Verifica que esté sano:
+
+```bash
+docker compose -f docker-compose.dev.yml ps
+```
+
+### 3. Construir y levantar el contenedor de Laravel
+
+```bash
+docker build -t shopify-legacy .
+docker run -d \
+  --name shopify_legacy \
+  -p 8080:8000 \
+  --env-file .env \
+  shopify-legacy
+```
+
+El servicio queda disponible en:
+- **API:** http://localhost:8080/api/legacy/materiales-bajo-stock
+- **Swagger UI:** http://localhost:8080/api/documentation
+
+### 4. Generar APP_KEY dentro del contenedor (primera vez)
+
+```bash
+docker exec shopify_legacy php artisan key:generate
+```
+
+### Detener el contenedor
+
+```bash
+docker stop shopify_legacy
+docker rm shopify_legacy
+
+# Detener Postgres si lo levantaste con dev compose:
+docker compose -f docker-compose.dev.yml down
+```
+
+---
+
+## 💻 Levante sin Docker (manual)
+
+Requisitos previos: PHP 8.2+, extensiones `pdo`, `pdo_pgsql`, `mbstring`, `xml`, `bcmath` y Composer 2+.
+
+```bash
+# 1. Instalar dependencias
 composer install
 
-# 2. Configurar variables de entorno
+# 2. Configurar entorno
 cp .env.example .env
-php artisan key:generate      # genera APP_KEY automáticamente
+php artisan key:generate     # genera APP_KEY automáticamente
 
-# 3. Editar .env con los datos de tu PostgreSQL
-#    (las tablas deben existir — créalas desde el backend NestJS)
+# 3. Editar .env con tus datos de PostgreSQL
 
-# 4. (Opcional) Levantar Postgres con Docker para desarrollo
-docker compose -f docker-compose.dev.yml up -d
-
-# 5. Iniciar servidor de desarrollo
+# 4. Iniciar servidor
 php artisan serve --port=8080
 ```
+
+---
 
 ## Variables de entorno
 
 | Variable | Descripción | Valor por defecto |
 |---|---|---|
 | `APP_NAME` | Nombre de la aplicación | `Shopify Legacy` |
-| `APP_ENV` | Entorno (`local`/`production`) | `local` |
-| `APP_KEY` | Clave de cifrado Laravel (generar con `key:generate`) | — |
+| `APP_ENV` | Entorno (`local` / `production`) | `local` |
+| `APP_KEY` | Clave de cifrado Laravel — generar con `php artisan key:generate` | — |
 | `APP_DEBUG` | Mostrar errores detallados | `true` |
 | `APP_URL` | URL base del servicio | `http://localhost:8080` |
-| `DB_CONNECTION` | Driver de BD | `pgsql` |
+| `DB_CONNECTION` | Driver de base de datos | `pgsql` |
 | `DB_HOST` | Host de PostgreSQL | `127.0.0.1` |
 | `DB_PORT` | Puerto de PostgreSQL | `5432` |
 | `DB_DATABASE` | Nombre de la base de datos | `shopify_orders` |
@@ -56,8 +120,10 @@ php artisan serve --port=8080
 | `SESSION_DRIVER` | Driver de sesión | `cookie` |
 | `CACHE_STORE` | Driver de caché | `array` |
 | `QUEUE_CONNECTION` | Driver de colas | `sync` |
-| `L5_SWAGGER_GENERATE_ALWAYS` | Regenerar docs en cada request | `true` |
-| `L5_SWAGGER_UI_ASSETS_PATH` | Ruta de assets de Swagger UI | (ver .env.example) |
+| `L5_SWAGGER_GENERATE_ALWAYS` | Regenerar docs OpenAPI en cada request | `true` |
+| `L5_SWAGGER_UI_ASSETS_PATH` | Ruta de assets de Swagger UI | `vendor/swagger-api/swagger-ui/dist/` |
+
+---
 
 ## Endpoints
 
@@ -67,25 +133,35 @@ php artisan serve --port=8080
 | `GET` | `/api/documentation` | Swagger UI |
 | `GET` | `/api/documentation/api-docs.json` | OpenAPI JSON |
 
+---
+
 ## Respuesta de ejemplo
 
-```json
-GET /api/legacy/materiales-bajo-stock
+```bash
+curl http://localhost:8080/api/legacy/materiales-bajo-stock
+```
 
+```json
 [
   { "material": "BOX_LARGE", "stock": 2 },
   { "material": "FILLER",    "stock": 3 }
 ]
 ```
 
+> Devuelve `[]` cuando todos los materiales tienen stock ≥ 10.
+
+---
+
 ## Estructura relevante
 
 ```
 app/Http/Controllers/
-  Controller.php           ← Info OpenAPI + Server
-  InventoryController.php  ← GET /materiales-bajo-stock con atributos OA\*
+  Controller.php           # Declaración OpenAPI: Info + Server (PHP 8 Attributes)
+  InventoryController.php  # GET /materiales-bajo-stock con anotaciones OA\*
 routes/
-  api.php                  ← GET /legacy/materiales-bajo-stock
+  api.php                  # Registra GET /legacy/materiales-bajo-stock
 ```
 
-> **Nota de diseño:** Este servicio conecta a la misma base de datos que el backend NestJS pero solo en modo lectura. No ejecuta migraciones propias — depende de las migraciones del backend para que las tablas existan.
+---
+
+> **Nota de diseño:** Este servicio conecta a la misma base de datos que el backend NestJS pero en modo **solo lectura**. No ejecuta migraciones propias — las tablas deben ser creadas por el backend.
